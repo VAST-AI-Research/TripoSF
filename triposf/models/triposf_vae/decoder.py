@@ -303,7 +303,7 @@ class TripoSFVAEDecoder(SparseTransformerBase):
         for chunk_idx, chunk in enumerate(chunks):
             try:
                 chunk_result = self.upsamples(chunk, pruning=pruning)
-            except:
+            except Exception as e:
                 print(f"Failed to process chunk {chunk_idx}: {e}")
                 continue
             
