@@ -27,11 +27,19 @@ from .. import SparseTensor
 from .. import DEBUG, ATTN
 
 if ATTN == 'xformers':
-    import xformers.ops as xops
+    try:
+        import xformers.ops as xops
+    except ImportError:
+        print(f"[WARNING] xformers not available for sparse attention, using sdpa")
+        ATTN = 'sdpa'
 elif ATTN == 'flash_attn':
-    import flash_attn
-else:
-    raise ValueError(f"Unknown attention module: {ATTN}")
+    try:
+        import flash_attn
+    except ImportError:
+        print(f"[WARNING] flash_attn not available for sparse attention, using sdpa")
+        ATTN = 'sdpa'
+
+from ._sdpa import sdpa_varlen
 
 
 __all__ = [
@@ -229,6 +237,13 @@ def sparse_scaled_dot_product_attention(*args, **kwargs):
             out = flash_attn.flash_attn_varlen_kvpacked_func(q, kv, cu_seqlens_q, cu_seqlens_kv, max(q_seqlen), max(kv_seqlen))
         elif num_all_args == 3:
             out = flash_attn.flash_attn_varlen_func(q, k, v, cu_seqlens_q, cu_seqlens_kv, max(q_seqlen), max(kv_seqlen))
+    elif ATTN == 'sdpa':
+        if num_all_args == 1:
+            q, k, v = qkv.unbind(dim=1)
+            kv_seqlen = q_seqlen
+        elif num_all_args == 2:
+            k, v = kv.unbind(dim=1)
+        out = sdpa_varlen(q, k, v, q_seqlen, kv_seqlen)
     else:
         raise ValueError(f"Unknown attention module: {ATTN}")
     

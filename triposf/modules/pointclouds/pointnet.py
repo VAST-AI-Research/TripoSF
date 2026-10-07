@@ -27,7 +27,27 @@ import torch
 import torch.nn as nn
 import copy
 from torch import Tensor
-from torch_scatter import scatter_mean
+
+# Fallback for torch_scatter if not available
+try:
+    from torch_scatter import scatter_mean
+except ImportError:
+    def scatter_mean(src, index, dim=-1, out=None, dim_size=None):
+        """Pure PyTorch port of torch_scatter.scatter_mean (same signature and defaults)."""
+        dim = dim % src.dim()
+        if index.dim() == 1:
+            for _ in range(dim):
+                index = index.unsqueeze(0)
+        for _ in range(index.dim(), src.dim()):
+            index = index.unsqueeze(-1)
+        index = index.expand(src.size())
+        if out is None:
+            size = list(src.size())
+            size[dim] = int(index.max()) + 1 if dim_size is None else dim_size
+            out = src.new_zeros(size)
+        out.scatter_add_(dim, index, src)
+        count = torch.zeros_like(out).scatter_add_(dim, index, torch.ones_like(src))
+        return out / count.clamp(min=1)
 
 def scale_tensor(
     dat, inp_scale=None, tgt_scale=None

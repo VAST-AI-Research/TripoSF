@@ -28,11 +28,19 @@ from .. import SparseTensor
 from .. import DEBUG, ATTN
 
 if ATTN == 'xformers':
-    import xformers.ops as xops
+    try:
+        import xformers.ops as xops
+    except ImportError:
+        print(f"[WARNING] xformers not available for windowed attention, using sdpa")
+        ATTN = 'sdpa'
 elif ATTN == 'flash_attn':
-    import flash_attn
-else:
-    raise ValueError(f"Unknown attention module: {ATTN}")
+    try:
+        import flash_attn
+    except ImportError:
+        print(f"[WARNING] flash_attn not available for windowed attention, using sdpa")
+        ATTN = 'sdpa'
+
+from ._sdpa import sdpa_dense, sdpa_varlen
 
 
 __all__ = [
@@ -133,6 +141,9 @@ def sparse_windowed_scaled_dot_product_self_attention(
             out = xops.memory_efficient_attention(q, k, v)          # [B, N, H, C]
         elif ATTN == 'flash_attn':
             out = flash_attn.flash_attn_qkvpacked_func(qkv_feats)   # [B, N, H, C]
+        elif ATTN == 'sdpa':
+            q, k, v = qkv_feats.unbind(dim=2)                       # [B, N, H, C]
+            out = sdpa_dense(q, k, v)                               # [B, N, H, C]
         else:
             raise ValueError(f"Unknown attention module: {ATTN}")
         out = out.reshape(B * N, H, C)                              # [M, H, C]
@@ -148,6 +159,11 @@ def sparse_windowed_scaled_dot_product_self_attention(
             cu_seqlens = torch.cat([torch.tensor([0]), torch.cumsum(torch.tensor(seq_lens), dim=0)], dim=0) \
                         .to(qkv.device).int()
             out = flash_attn.flash_attn_varlen_qkvpacked_func(qkv_feats, cu_seqlens, max(seq_lens)) # [M, H, C]
+        elif ATTN == 'sdpa':
+            q, k, v = qkv_feats.unbind(dim=1)                       # [M, H, C]
+            out = sdpa_varlen(q, k, v, seq_lens, seq_lens)          # [M, H, C]
+        else:
+            raise ValueError(f"Unknown attention module: {ATTN}")
 
     out = out[bwd_indices]      # [T, H, C]
 

@@ -27,14 +27,26 @@ import math
 from . import DEBUG, BACKEND
 
 if BACKEND == 'xformers':
-    import xformers.ops as xops
-elif BACKEND == 'flash_attn':
-    import flash_attn
-elif BACKEND == 'sdpa':
+    try:
+        import xformers.ops as xops
+    except ImportError:
+        print(f"[WARNING] xformers not available, falling back to sdpa")
+        BACKEND = 'sdpa'
+        from torch.nn.functional import scaled_dot_product_attention as sdpa
+
+if BACKEND == 'flash_attn':
+    try:
+        import flash_attn
+    except ImportError:
+        print(f"[WARNING] flash_attn not available, falling back to sdpa")
+        BACKEND = 'sdpa'
+        from torch.nn.functional import scaled_dot_product_attention as sdpa
+
+if BACKEND == 'sdpa':
     from torch.nn.functional import scaled_dot_product_attention as sdpa
 elif BACKEND == 'naive':
     pass
-else:
+elif BACKEND not in ['xformers', 'flash_attn', 'sdpa', 'naive']:
     raise ValueError(f"Unknown attention backend: {BACKEND}")
 
 
